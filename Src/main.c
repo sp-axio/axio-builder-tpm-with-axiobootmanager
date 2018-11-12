@@ -53,12 +53,12 @@
 #include "mbedtls.h"
 
 /* USER CODE BEGIN Includes */
+#include "TisTpmDrv.h"
+#include "TpmUtil.h"
 
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
-CAN_HandleTypeDef hcan1;
-
 CRYP_HandleTypeDef hcryp;
 __ALIGN_BEGIN static const uint8_t pKeyCRYP[24] __ALIGN_END = {
                             0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
@@ -89,13 +89,13 @@ osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
 
+extern uint32_t g_UsingLocality;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_CAN1_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
@@ -116,6 +116,12 @@ void StartDefaultTask(void const * argument);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+int __io_putchar(int ch)
+{
+    HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, 0xFFFF);
+
+    return ch;
+}
 
 /* USER CODE END 0 */
 
@@ -149,7 +155,6 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
-  MX_CAN1_Init();
   MX_USART3_UART_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
@@ -163,6 +168,59 @@ int main(void)
   MX_RNG_Init();
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
+
+  printf("\nHello\n\n");
+#ifdef I2CTPM
+#ifdef SPECIFIC_CYCLE_DELAY
+  TpmAdjustSpinWait(SPECIFIC_CYCLE_DELAY);
+#else
+  printf("ADD: #define SPECIFIC_CYCLE_DELAY (%d)\r\n", TpmAdjustSpinWait(DETECT_CYCLE_DELAY));
+#endif
+#endif
+
+  // Make sure we have a TPM, not having one is fatal
+  uint32_t retVal = 0;
+  if(((retVal = DetectTpm()) != HAL_OK) ||
+     (RequestLocality(TIS_LOCALITY_0) != HAL_OK))
+  {
+      printf("No TPM detected\r\n");
+      for(;;);
+  }
+  g_UsingLocality = (uint32_t)TIS_LOCALITY_0;
+  printf("TPM available and ready.\r\n");
+
+  // Pushbutton provisioning
+  if(HAL_GPIO_ReadPin(User_Blue_Button_GPIO_Port, User_Blue_Button_Pin) == GPIO_PIN_RESET)
+  {
+      uint8_t releaseMsg = 0x00;
+      printf("Clearing and provisioning TPM...\r\n");
+      if((retVal = TpmUtilClearAndProvision()) != TPM_RC_SUCCESS)
+      {
+          printf("TpmUtilClearAndProvision() failed.\r\n");
+          for(;;);
+      }
+      printf("Clearing and provisioning TPM complete.\r\n");
+      while(HAL_GPIO_ReadPin(User_Blue_Button_GPIO_Port, User_Blue_Button_Pin) == GPIO_PIN_SET)
+      {
+          if(!releaseMsg)
+          {
+              printf("Release button to continue...\r\n");
+              releaseMsg = 0x01;
+          }
+          HAL_Delay(10);
+      }
+  }
+
+  if(TpmUtilLoadPersistedData() != HAL_OK)
+  {
+      printf("Persisted data invalid.\r\n");
+      for(;;);
+  }
+  if((retVal = RazorClam()) != TPM_RC_SUCCESS)
+  {
+      printf("RazorClam() failed.\r\n");
+      for(;;);
+  }
 
   /* USER CODE END 2 */
 
@@ -284,29 +342,6 @@ void SystemClock_Config(void)
   HAL_NVIC_SetPriority(SysTick_IRQn, 15, 0);
 }
 
-/* CAN1 init function */
-static void MX_CAN1_Init(void)
-{
-
-  hcan1.Instance = CAN1;
-  hcan1.Init.Prescaler = 16;
-  hcan1.Init.Mode = CAN_MODE_NORMAL;
-  hcan1.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan1.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan1.Init.TimeSeg2 = CAN_BS2_1TQ;
-  hcan1.Init.TimeTriggeredMode = DISABLE;
-  hcan1.Init.AutoBusOff = DISABLE;
-  hcan1.Init.AutoWakeUp = DISABLE;
-  hcan1.Init.AutoRetransmission = DISABLE;
-  hcan1.Init.ReceiveFifoLocked = DISABLE;
-  hcan1.Init.TransmitFifoPriority = DISABLE;
-  if (HAL_CAN_Init(&hcan1) != HAL_OK)
-  {
-    _Error_Handler(__FILE__, __LINE__);
-  }
-
-}
-
 /* CRYP init function */
 static void MX_CRYP_Init(void)
 {
@@ -424,8 +459,8 @@ static void MX_SPI2_Init(void)
   hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi2.Init.NSS = SPI_NSS_HARD_OUTPUT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -581,39 +616,55 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOE_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_7|GPIO_PIN_6|GPIO_PIN_8, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOI, GPIO_PIN_0, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOF, LD2_Pin|GPIO_PIN_6|LD3_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PF4 PF5 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(D10_GPIO_Port, D10_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : D8_Pin D9_Pin */
+  GPIO_InitStruct.Pin = D8_Pin|D9_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PI0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOI, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : A4_Pin A5_Pin A3_Pin */
+  GPIO_InitStruct.Pin = A4_Pin|A5_Pin|A3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PF7 PF6 PF8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_6|GPIO_PIN_8;
+  /*Configure GPIO pins : LD2_Pin PF6 LD3_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin|GPIO_PIN_6|LD3_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PF9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
+  /*Configure GPIO pin : User_Blue_Button_Pin */
+  GPIO_InitStruct.Pin = User_Blue_Button_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+  HAL_GPIO_Init(User_Blue_Button_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PD14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  /*Configure GPIO pin : D10_Pin */
+  GPIO_InitStruct.Pin = D10_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  HAL_GPIO_Init(D10_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA4 PA6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_4|GPIO_PIN_6;
+  /*Configure GPIO pins : A0_Pin A2_Pin A1_Pin */
+  GPIO_InitStruct.Pin = A0_Pin|A2_Pin|A1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);

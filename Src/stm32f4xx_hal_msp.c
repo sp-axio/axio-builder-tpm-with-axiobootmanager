@@ -87,60 +87,6 @@ void HAL_MspInit(void)
   /* USER CODE END MspInit 1 */
 }
 
-void HAL_CAN_MspInit(CAN_HandleTypeDef* hcan)
-{
-
-  GPIO_InitTypeDef GPIO_InitStruct;
-  if(hcan->Instance==CAN1)
-  {
-  /* USER CODE BEGIN CAN1_MspInit 0 */
-
-  /* USER CODE END CAN1_MspInit 0 */
-    /* Peripheral clock enable */
-    __HAL_RCC_CAN1_CLK_ENABLE();
-  
-    /**CAN1 GPIO Configuration    
-    PD0     ------> CAN1_RX
-    PD1     ------> CAN1_TX 
-    */
-    GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    GPIO_InitStruct.Alternate = GPIO_AF9_CAN1;
-    HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN CAN1_MspInit 1 */
-
-  /* USER CODE END CAN1_MspInit 1 */
-  }
-
-}
-
-void HAL_CAN_MspDeInit(CAN_HandleTypeDef* hcan)
-{
-
-  if(hcan->Instance==CAN1)
-  {
-  /* USER CODE BEGIN CAN1_MspDeInit 0 */
-
-  /* USER CODE END CAN1_MspDeInit 0 */
-    /* Peripheral clock disable */
-    __HAL_RCC_CAN1_CLK_DISABLE();
-  
-    /**CAN1 GPIO Configuration    
-    PD0     ------> CAN1_RX
-    PD1     ------> CAN1_TX 
-    */
-    HAL_GPIO_DeInit(GPIOD, GPIO_PIN_0|GPIO_PIN_1);
-
-  /* USER CODE BEGIN CAN1_MspDeInit 1 */
-
-  /* USER CODE END CAN1_MspDeInit 1 */
-  }
-
-}
-
 void HAL_CRYP_MspInit(CRYP_HandleTypeDef* hcryp)
 {
 
@@ -383,10 +329,9 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
     /**SPI2 GPIO Configuration    
     PI3     ------> SPI2_MOSI
     PI2     ------> SPI2_MISO
-    PI1     ------> SPI2_SCK
-    PI0     ------> SPI2_NSS 
+    PI1     ------> SPI2_SCK 
     */
-    GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_2|GPIO_PIN_1|GPIO_PIN_0;
+    GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_2|GPIO_PIN_1;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
@@ -438,10 +383,9 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef* hspi)
     /**SPI2 GPIO Configuration    
     PI3     ------> SPI2_MOSI
     PI2     ------> SPI2_MISO
-    PI1     ------> SPI2_SCK
-    PI0     ------> SPI2_NSS 
+    PI1     ------> SPI2_SCK 
     */
-    HAL_GPIO_DeInit(GPIOI, GPIO_PIN_3|GPIO_PIN_2|GPIO_PIN_1|GPIO_PIN_0);
+    HAL_GPIO_DeInit(GPIOI, GPIO_PIN_3|GPIO_PIN_2|GPIO_PIN_1);
 
   /* USER CODE BEGIN SPI2_MspDeInit 1 */
 

@@ -81,6 +81,8 @@
 
 /* USER CODE BEGIN 1 */
 
+#include "stm32f4xx_hal.h"
+
 /* USER CODE END 1 */
 
 #define MAX_STACK_SIZE 0x2000
