@@ -2,17 +2,27 @@
 #include <stdlib.h>
 #include <string.h>
 //#include "CryptoApi.h"
-#include "user_settings.h"
 
 // Documentation @ https://wolfssl.com/wolfSSL/Docs-wolfssl-manual-18-wolfcrypt-api-reference.html
 extern "C" {
-#include "wolfssl/wolfcrypt/random.h"
-#include "wolfssl/wolfcrypt/sha.h"
-#include "wolfssl/wolfcrypt/sha256.h"
-#include "wolfssl/wolfcrypt/sha512.h"
-#include "wolfssl/wolfcrypt/hmac.h"
-#include "wolfssl/wolfcrypt/integer.h"
-#include "wolfssl/wolfcrypt/aes.h"
+//#include "wolfssl/wolfcrypt/random.h"
+//#include "wolfssl/wolfcrypt/sha.h"
+//#include "wolfssl/wolfcrypt/sha256.h"
+//#include "wolfssl/wolfcrypt/sha512.h"
+//#include "wolfssl/wolfcrypt/hmac.h"
+//#include "wolfssl/wolfcrypt/integer.h"
+//#include "wolfssl/wolfcrypt/aes.h"
+
+#include "stm32f4xx_hal.h"
+#include "cmsis_os.h"
+#include "mbedtls_config.h"
+#include "mbedtls/bignum.h"
+#include "mbedtls/hmac_drbg.h"
+#include "mbedtls/aes.h"
+#include "mbedtls/md.h"
+#include "mbedtls/sha1.h"
+#include "mbedtls/sha256.h"
+#include "mbedtls/sha512.h"
 }
 
 // Use the FreeRTOS heap
@@ -178,6 +188,42 @@ typedef struct _HASH_STATE
 #define CRYPT_POINT         ((CRYPT_RESULT) -5)
 #define CRYPT_CANCEL        ((CRYPT_RESULT) -6)
 
+/*
+ * X = GCD[A, B]
+ */
+int mbedtls_lcm(mbedtls_mpi *X, mbedtls_mpi *A, mbedtls_mpi *B)
+{
+    int ret = -1;
+    mbedtls_mpi t1, t2;
+    mbedtls_mpi_init(&t1);
+    mbedtls_mpi_init(&t2);
+
+    if ((ret = mbedtls_mpi_gcd(&t1, A, B)) != 0) {
+	goto cleanup;
+    }
+
+    if (mbedtls_mpi_cmp_mpi(A, B) == 1) { /* A > B */
+	if ((ret = mbedtls_mpi_div_mpi(&t1, NULL, A, &t2)) < 0) {
+	    goto cleanup;
+	}
+	if ((ret = mbedtls_mpi_mul_mpi(X, B, &t2)) < 0) {
+	    goto cleanup;
+	}
+    } else {
+	if ((ret = mbedtls_mpi_div_mpi(&t1, NULL, B, &t2)) < 0) {
+	    goto cleanup;
+	}
+	if ((ret = mbedtls_mpi_mul_mpi(X, A, &t2)) < 0) {
+	    goto cleanup;
+	}
+    }
+
+cleanup:
+    mbedtls_mpi_free(&t1);
+    mbedtls_mpi_free(&t2);
+    return ret;
+}
+
 CRYPT_RESULT
 _cpri__TestKeyRSA(
     TPM2B* dOut,
@@ -189,32 +235,42 @@ _cpri__TestKeyRSA(
 {
     CRYPT_RESULT retVal = CRYPT_SUCCESS;
     long exp = (!exponent) ? 0x00010001 : (long)exponent;
-    mp_int e = { 0 };
-    mp_int d = { 0 };
-    mp_int n = { 0 };
-    mp_int p = { 0 };
-    mp_int q = { 0 };
-    mp_int qr = { 0 };
-    mp_int tmp1 = { 0 };
-    mp_int tmp2 = { 0 };
+    mbedtls_mpi e = { 0 };
+    mbedtls_mpi d = { 0 };
+    mbedtls_mpi n = { 0 };
+    mbedtls_mpi p = { 0 };
+    mbedtls_mpi q = { 0 };
+    mbedtls_mpi qr = { 0 };
+    mbedtls_mpi tmp1 = { 0 };
+    mbedtls_mpi tmp2 = { 0 };
 
     if (publicKey->size / 2 != prime1->size)
         return CRYPT_PARAMETER;
 
+    mbedtls_mpi_init(&e);
+    mbedtls_mpi_init(&d);
+    mbedtls_mpi_init(&n);
+    mbedtls_mpi_init(&p);
+    mbedtls_mpi_init(&q);
+    mbedtls_mpi_init(&qr);
+    mbedtls_mpi_init(&tmp1);
+    mbedtls_mpi_init(&tmp2);
+#if 0
     if ((mp_init_multi(&e, &d, &n, &p, &q, &qr) != 0) ||
         (mp_init_multi(&tmp1, &tmp2, NULL, NULL, NULL, NULL) != 0))
     {
         retVal = CRYPT_FAIL;
         goto Cleanup;
     }
-    if (mp_set_int(&e, exp) != 0)  /* key->e = exp */
+#endif
+    if (mbedtls_mpi_lset(&e, exp) != 0)  /* key->e = exp */
     {
         retVal = CRYPT_PARAMETER;
         goto Cleanup;
     }
 
     // Read the first prime
-    if (mp_read_unsigned_bin(&p, (const unsigned char*)prime1->buffer, prime1->size) != 0)
+    if (mbedtls_mpi_read_binary(&p, (const unsigned char*)prime1->buffer, prime1->size) != 0)
     {
         retVal = CRYPT_PARAMETER;
         goto Cleanup;
@@ -224,21 +280,21 @@ _cpri__TestKeyRSA(
     if ((prime2 != NULL) && (prime2->size != 0))
     {
         // Two primes provided so use them to compute n
-        if (mp_read_unsigned_bin(&q, (const unsigned char*)prime2->buffer, prime2->size) != 0)
+        if (mbedtls_mpi_read_binary(&q, (const unsigned char*)prime2->buffer, prime2->size) != 0)
         {
             retVal = CRYPT_PARAMETER;
             goto Cleanup;
         }
 
         // Make sure that the sizes of the primes are compatible
-        if (mp_unsigned_bin_size(&q) != mp_unsigned_bin_size(&p))
+        if (mbedtls_mpi_size(&q) != mbedtls_mpi_size(&p))
         {
             retVal = CRYPT_PARAMETER;
             goto Cleanup;
         }
 
         // Multiply the primes to get the public modulus
-        if (mp_mul(&p, &q, &n) != 0)
+        if (mbedtls_mpi_mul_mpi(&n, &p, &q) != 0)
         {
             retVal = CRYPT_FAIL;
             goto Cleanup;
@@ -246,8 +302,8 @@ _cpri__TestKeyRSA(
 
         // if the space provided for the public modulus is large enough,
         // save the created value
-        if ((mp_unsigned_bin_size(&n) == publicKey->size) &&
-            (mp_to_unsigned_bin(&n, publicKey->buffer) != 0))
+        if ((mbedtls_mpi_size(&n) == publicKey->size) &&
+            (mbedtls_mpi_write_binary(&n, publicKey->buffer, publicKey->size) != 0))
         {
             retVal = CRYPT_PARAMETER;
             goto Cleanup;
@@ -256,21 +312,21 @@ _cpri__TestKeyRSA(
     else
     {
         // One prime provided so find the second prime by division
-        if (mp_read_unsigned_bin(&n, (const unsigned char*)publicKey->buffer, publicKey->size) != 0)
+        if (mbedtls_mpi_read_binary(&n, (const unsigned char*)publicKey->buffer, publicKey->size) != 0)
         {
             retVal = CRYPT_PARAMETER;
             goto Cleanup;
         }
 
         // Get q = n/p;
-        if (mp_div(&n, &p, &q, &qr) != 0)
+        if (mbedtls_mpi_div_mpi(&q, &qr, &n, &p) != 0)
         {
             retVal = CRYPT_FAIL;
             goto Cleanup;
         }
 
         // If there is a remainder, then this is not a valid n
-        if (mp_unsigned_bin_size(&qr) != 0 || mp_count_bits(&q) != mp_count_bits(&p))
+        if (mbedtls_mpi_size(&qr) != 0 || mbedtls_mpi_bitlen(&q) != mbedtls_mpi_bitlen(&p))
         {
             retVal = CRYPT_PARAMETER;
             goto Cleanup;
@@ -279,40 +335,40 @@ _cpri__TestKeyRSA(
         // Return the second prime if requested
         if (prime2 != NULL)
         {
-            prime2->size = mp_unsigned_bin_size(&q);
-            mp_to_unsigned_bin(&q, prime2->buffer);
+            prime2->size = mbedtls_mpi_size(&q);
+            mbedtls_mpi_write_binary(&q, prime2->buffer, prime2->size);
         }
     }
 
     // We have both primes now
-    if ((mp_sub_d(&q, 1, &tmp1) != 0) ||    /* tmp1 = q-1 */
-        (mp_sub_d(&p, 1, &tmp2) != 0) ||    /* tmp2 = p-1 */
-        (mp_lcm(&tmp1, &tmp2, &tmp1) != 0)) /* tmp1 = lcm(p-1, q-1) */
+    if ((mbedtls_mpi_sub_int(&tmp1, &q, 1) != 0) ||    /* tmp1 = q-1 */
+        (mbedtls_mpi_sub_int(&tmp2, &p, 1) != 0) ||    /* tmp2 = p-1 */
+        (mbedtls_lcm(&tmp1, &tmp1, &tmp2) != 0)) /* tmp1 = lcm(p-1, q-1) */
     {
         retVal = CRYPT_FAIL;
         goto Cleanup;
     }
 
     // Calculate the private key
-    if (mp_invmod(&e, &tmp1, &d) != 0)
+    if (mbedtls_mpi_inv_mod(&d, &e, &tmp1) != 0)
     {
         retVal = CRYPT_FAIL;
         goto Cleanup;
     }
 
     // Return the private key
-    dOut->size = mp_unsigned_bin_size(&d);
-    mp_to_unsigned_bin(&d, dOut->buffer);
+    dOut->size = mbedtls_mpi_size(&d);
+    mbedtls_mpi_write_binary(&d, dOut->buffer, dOut->size);
 
 Cleanup:
-    mp_clear(&e);
-    mp_clear(&d);
-    mp_clear(&n);
-    mp_clear(&p);
-    mp_clear(&q);
-    mp_clear(&qr);
-    mp_clear(&tmp1);
-    mp_clear(&tmp2);
+    mbedtls_mpi_free(&e);
+    mbedtls_mpi_free(&d);
+    mbedtls_mpi_free(&n);
+    mbedtls_mpi_free(&p);
+    mbedtls_mpi_free(&q);
+    mbedtls_mpi_free(&qr);
+    mbedtls_mpi_free(&tmp1);
+    mbedtls_mpi_free(&tmp2);
     return retVal;
 }
 
@@ -324,31 +380,36 @@ static BOOL RSAEP(size_t dInOutSize,
 {
     BOOL retVal = TRUE;
     long exp = (!exponent) ? 0x00010001 : (long)exponent;
-    mp_int e = { 0 };
-    mp_int n = { 0 };
-    mp_int tmp = { 0 };
+    mbedtls_mpi e = { 0 };
+    mbedtls_mpi n = { 0 };
+    mbedtls_mpi tmp = { 0 };
     UINT32 offset = (UINT32)dInOutSize;
 
     // Set up the public key
+    mbedtls_mpi_init(&e);
+    mbedtls_mpi_init(&n);
+    mbedtls_mpi_init(&tmp);
+#if 0
     if (mp_init_multi(&e, &n, &tmp, NULL, NULL, NULL) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
-    if (mp_set_int(&e, exp) != 0)
+#endif
+    if (mbedtls_mpi_lset(&e, exp) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
-    if (mp_read_unsigned_bin(&n, (const unsigned char*)modulus, (int)modulusSize) != 0)
+    if (mbedtls_mpi_read_binary(&n, (const unsigned char*)modulus, (int)modulusSize) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
 
     // Perform the encryption
-    if ((mp_read_unsigned_bin(&tmp, (const unsigned char*)dInOut, (int)dInOutSize) != 0) ||
-        (mp_exptmod(&tmp, &e, &n, &tmp) != 0))
+    if ((mbedtls_mpi_read_binary(&tmp, (const unsigned char*)dInOut, (int)dInOutSize) != 0) ||
+        (mbedtls_mpi_exp_mod(&tmp, &tmp, &e, &n, NULL) != 0))
     {
         retVal = FALSE;
         goto Cleanup;
@@ -356,17 +417,17 @@ static BOOL RSAEP(size_t dInOutSize,
 
     // Prepare the output
     memset((BYTE*)dInOut, 0x00, dInOutSize);
-    offset -= mp_unsigned_bin_size(&tmp);
-    if (mp_to_unsigned_bin(&tmp, &((unsigned char*)dInOut)[offset]) != 0)
+    offset -= mbedtls_mpi_size(&tmp);
+    if (mbedtls_mpi_write_binary(&tmp, &((unsigned char*)dInOut)[offset], mbedtls_mpi_size(&tmp)) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
 
 Cleanup:
-    mp_clear(&e);
-    mp_clear(&n);
-    mp_clear(&tmp);
+    mbedtls_mpi_free(&e);
+    mbedtls_mpi_free(&n);
+    mbedtls_mpi_free(&tmp);
     return retVal;
 }
 
@@ -378,31 +439,36 @@ static BOOL RSADP(size_t dInOutSize,
     const void* modulus)
 {
     BOOL retVal = TRUE;
-    mp_int d = { 0 };
-    mp_int n = { 0 };
-    mp_int tmp = { 0 };
+    mbedtls_mpi d = { 0 };
+    mbedtls_mpi n = { 0 };
+    mbedtls_mpi tmp = { 0 };
     UINT32 offset = (UINT32)dInOutSize;
 
+    mbedtls_mpi_init(&d);
+    mbedtls_mpi_init(&n);
+    mbedtls_mpi_init(&tmp);
+#if 0
     // Set up the private key
     if (mp_init_multi(&d, &n, &tmp, NULL, NULL, NULL) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
-    if (mp_read_unsigned_bin(&n, (const unsigned char*)modulus, (int)modulusSize) != 0)
+#endif
+    if (mbedtls_mpi_read_binary(&n, (const unsigned char*)modulus, (int)modulusSize) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
-    if (mp_read_unsigned_bin(&d, (const unsigned char*)privateExponent, (int)privateExponentSize) != 0)
+    if (mbedtls_mpi_read_binary(&d, (const unsigned char*)privateExponent, (int)privateExponentSize) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
 
     // Perform the decryption
-    if ((mp_read_unsigned_bin(&tmp, (const unsigned char*)dInOut, (int)dInOutSize) != 0) ||
-        (mp_exptmod(&tmp, &d, &n, &tmp) != 0))
+    if ((mbedtls_mpi_read_binary(&tmp, (const unsigned char*)dInOut, (int)dInOutSize) != 0) ||
+        (mbedtls_mpi_exp_mod(&tmp, &tmp, &d, &n, NULL) != 0))
     {
         retVal = FALSE;
         goto Cleanup;
@@ -410,17 +476,17 @@ static BOOL RSADP(size_t dInOutSize,
 
     // Prepare the output
     memset((BYTE*)dInOut, 0x00, dInOutSize);
-    offset -= mp_unsigned_bin_size(&tmp);
-    if (mp_to_unsigned_bin(&tmp, &((unsigned char*)dInOut)[offset]) != 0)
+    offset -= mbedtls_mpi_size(&tmp);
+    if (mbedtls_mpi_write_binary(&tmp, &((unsigned char*)dInOut)[offset], mbedtls_mpi_size(&tmp)) != 0)
     {
         retVal = FALSE;
         goto Cleanup;
     }
 
 Cleanup:
-    mp_clear(&d);
-    mp_clear(&n);
-    mp_clear(&tmp);
+    mbedtls_mpi_free(&d);
+    mbedtls_mpi_free(&n);
+    mbedtls_mpi_free(&tmp);
     return retVal;
 }
 
@@ -733,30 +799,30 @@ UINT16 _cpri__StartHash(TPM_ALG_ID hashAlg,
 
     switch (hashAlg) {
     case TPM_ALG_SHA1:
-        if ((hashState->state = malloc(sizeof(Sha))) != NULL)
+        if ((hashState->state = malloc(sizeof(mbedtls_sha1_context))) != NULL)
         {
-            wc_InitSha((Sha*)hashState->state);
+            mbedtls_sha1_starts((mbedtls_sha1_context*)hashState->state);
         }
         break;
 
     case TPM_ALG_SHA256:
-        if ((hashState->state = malloc(sizeof(Sha256))) != NULL)
+        if ((hashState->state = malloc(sizeof(mbedtls_sha256_context))) != NULL)
         {
-            wc_InitSha256((Sha256*)hashState->state);
+            mbedtls_sha256_starts((mbedtls_sha256_context*)hashState->state, 0);
         }
         break;
 
     case TPM_ALG_SHA384:
-        if ((hashState->state = malloc(sizeof(Sha384))) != NULL)
+        if ((hashState->state = calloc(1, sizeof(mbedtls_sha512_context))) != NULL)
         {
-            wc_InitSha384((Sha384*)hashState->state);
+            mbedtls_sha512_starts((mbedtls_sha512_context*)hashState->state, 1);
         }
         break;
 
     case TPM_ALG_SHA512:
-        if ((hashState->state = malloc(sizeof(Sha512))) != NULL)
+        if ((hashState->state = calloc(1, sizeof(mbedtls_sha512_context))) != NULL)
         {
-            wc_InitSha512((Sha512*)hashState->state);
+            mbedtls_sha512_starts((mbedtls_sha512_context*)hashState->state, 0);
         }
         break;
 
@@ -776,23 +842,23 @@ void _cpri__UpdateHash(PCPRI_HASH_STATE hashState,
     switch (hashState->hashAlg)
     {
     case TPM_ALG_SHA1:
-        wc_ShaUpdate((Sha*)hashState->state, data, dataSize);
+        mbedtls_sha1_update((mbedtls_sha1_context*)hashState->state, data, dataSize);
         break;
 
     case TPM_ALG_SHA256:
-        wc_Sha256Update((Sha256*)hashState->state, data, dataSize);
+        mbedtls_sha256_update((mbedtls_sha256_context*)hashState->state, data, dataSize);
         break;
 
     case TPM_ALG_SHA384:
-        wc_Sha384Update((Sha384*)hashState->state, data, dataSize);
+        mbedtls_sha512_update((mbedtls_sha512_context*)hashState->state, data, dataSize);
         break;
 
     case TPM_ALG_SHA512:
-        wc_Sha512Update((Sha512*)hashState->state, data, dataSize);
+        mbedtls_sha512_update((mbedtls_sha512_context*)hashState->state, data, dataSize);
         break;
 
     case TPM_ALG_HMAC:
-        wc_HmacUpdate((Hmac*)hashState->state, data, dataSize);
+        mbedtls_md_hmac_update((mbedtls_md_context_t*)hashState->state, data, dataSize);
         break;
     }
 }
@@ -807,23 +873,23 @@ UINT16 _cpri__CompleteHash(PCPRI_HASH_STATE hashState,
     switch (hashState->hashAlg)
     {
     case TPM_ALG_SHA1:
-        wc_ShaFinal((Sha*)hashState->state, digest);
-        memset(hashState->state, 0x00, sizeof(Sha));
+        mbedtls_sha1_finish((mbedtls_sha1_context*)hashState->state, digest);
+        memset(hashState->state, 0x00, sizeof(mbedtls_sha1_context));
         break;
 
     case TPM_ALG_SHA256:
-        wc_Sha256Final((Sha256*)hashState->state, digest);
-        memset(hashState->state, 0x00, sizeof(Sha256));
+        mbedtls_sha256_finish((mbedtls_sha256_context*)hashState->state, digest);
+        memset(hashState->state, 0x00, sizeof(mbedtls_sha256_context));
         break;
 
     case TPM_ALG_SHA384:
-        wc_Sha384Final((Sha384*)hashState->state, digest);
-        memset(hashState->state, 0x00, sizeof(Sha384));
+        mbedtls_sha512_finish((mbedtls_sha512_context*)hashState->state, digest);
+        memset(hashState->state, 0x00, sizeof(mbedtls_sha512_context));
         break;
 
     case TPM_ALG_SHA512:
-        wc_Sha512Final((Sha512*)hashState->state, digest);
-        memset(hashState->state, 0x00, sizeof(Sha512));
+        mbedtls_sha512_finish((mbedtls_sha512_context*)hashState->state, digest);
+        memset(hashState->state, 0x00, sizeof(mbedtls_sha512_context));
         break;
     default:
         digestLen = 0;
@@ -847,34 +913,34 @@ UINT16 _cpri__HashBlock(TPM_ALG_ID hashAlg,
         {
             case TPM_ALG_SHA1:
             {
-                Sha context = { 0 };
-                wc_InitSha(&context);
-                wc_ShaUpdate(&context, data, dataSize);
-                wc_ShaFinal(&context, digest);
+                mbedtls_sha1_context context = { 0 };
+                mbedtls_sha1_starts(&context);
+                mbedtls_sha1_update(&context, data, dataSize);
+                mbedtls_sha1_finish(&context, digest);
                 break;
             }
             case TPM_ALG_SHA256:
             {
-                Sha256 context = { 0 };
-                wc_InitSha256(&context);
-                wc_Sha256Update(&context, data, dataSize);
-                wc_Sha256Final(&context, digest);
+                mbedtls_sha256_context context = { 0 };
+                mbedtls_sha256_starts(&context, 0);
+                mbedtls_sha256_update(&context, data, dataSize);
+                mbedtls_sha256_finish(&context, digest);
                 break;
             }
             case TPM_ALG_SHA384:
             {
-                Sha384 context = { 0 };
-                wc_InitSha384(&context);
-                wc_Sha384Update(&context, data, dataSize);
-                wc_Sha384Final(&context, digest);
+                mbedtls_sha512_context context = { 0 };
+                mbedtls_sha512_starts(&context, 1);
+                mbedtls_sha512_update(&context, data, dataSize);
+                mbedtls_sha512_finish(&context, digest);
                 break;
             }
             case TPM_ALG_SHA512:
             {
-                Sha512 context = { 0 };
-                wc_InitSha512(&context);
-                wc_Sha512Update(&context, data, dataSize);
-                wc_Sha512Final(&context, digest);
+                mbedtls_sha512_context context = { 0 };
+                mbedtls_sha512_starts(&context, 0);
+                mbedtls_sha512_update(&context, data, dataSize);
+                mbedtls_sha512_finish(&context, digest);
                 break;
             }
         }
@@ -894,8 +960,8 @@ UINT16 _cpri__StartHMAC(TPM_ALG_ID hashAlg,
     BYTE *key,
     TPM2B *oPadKey)
 {
-    Hmac* context = NULL;
-    int type = 0;
+    mbedtls_md_context_t* context = NULL;
+    mbedtls_md_type_t type = MBEDTLS_MD_NONE;
 
 //    UNREFERENCED_PARAMETER(oPadKey);
 
@@ -904,23 +970,25 @@ UINT16 _cpri__StartHMAC(TPM_ALG_ID hashAlg,
     switch (hashAlg)
     {
     case TPM_ALG_SHA1:
-        type = SHA;
+        type = MBEDTLS_MD_SHA1;
         break;
     case TPM_ALG_SHA256:
-        type = SHA256;
+        type = MBEDTLS_MD_SHA256;
         break;
     case TPM_ALG_SHA384:
-        type = SHA384;
+        type = MBEDTLS_MD_SHA384;
         break;
     case TPM_ALG_SHA512:
-        type = SHA512;
+        type = MBEDTLS_MD_SHA512;
         break;
     default:
         return 0;
     }
 
-    if (((context = (Hmac*)malloc(sizeof(Hmac))) == NULL) ||
-        (wc_HmacSetKey(context, type, key, keySize) != 0))
+    if (((context = (mbedtls_md_context_t*)malloc(sizeof(mbedtls_md_context_t))) == NULL) ||
+	(context != memset(context, 0, sizeof(mbedtls_md_context_t)) ||
+	(mbedtls_md_setup(context, mbedtls_md_info_from_type(type), 1) != 0) ||
+        (mbedtls_md_hmac_starts(context, key, keySize) != 0)))
     {
         return CRYPT_FAIL;
     }
@@ -937,31 +1005,14 @@ UINT16 _cpri__CompleteHMAC(CPRI_HASH_STATE *hashState,
     BYTE *dOut
     )
 {
-    Hmac* context = (Hmac*)hashState->state;
+    mbedtls_md_context_t* context = (mbedtls_md_context_t*)hashState->state;
     UINT16 hmacLen = 0;
     BYTE hmac[64] = {0};
 
 //    UNREFERENCED_PARAMETER(oPadKey);
-    switch (context->macType)
-    {
-    case SHA:
-        hmacLen = (UINT16)HashLength(TPM_ALG_SHA1);
-        break;
-    case SHA256:
-        hmacLen = (UINT16)HashLength(TPM_ALG_SHA256);
-        break;
-    case SHA384:
-        hmacLen = (UINT16)HashLength(TPM_ALG_SHA384);
-        break;
-    case SHA512:
-        hmacLen = (UINT16)HashLength(TPM_ALG_SHA512);
-        break;
-    default:
-        hmacLen = 0;
-        break;
-    }
+    hmacLen = (UINT16)mbedtls_md_get_size(context->md_info);
 
-    if (wc_HmacFinal(context, hmac) != 0)
+    if (mbedtls_md_hmac_finish(context, hmac) != 0)
     {
         hmacLen = 0;
         goto Cleanup;
@@ -969,7 +1020,7 @@ UINT16 _cpri__CompleteHMAC(CPRI_HASH_STATE *hashState,
     memcpy(dOut, hmac, MIN(hmacLen, dOutSize));
 
 Cleanup:
-    memset(context, 0x00, sizeof(Hmac));
+    memset(context, 0x00, sizeof(mbedtls_md_context_t));
     free(context);
     return MIN(hmacLen, dOutSize);
 }
@@ -982,32 +1033,33 @@ UINT16 _cpri__HMACBlock(TPM_ALG_ID hashAlg,
     UINT32 digestSize,
     BYTE* hmac)
 {
-    Hmac context = { 0 };
-    int type = 0;
+    mbedtls_md_context_t context = { 0 };
+    mbedtls_md_type_t type = MBEDTLS_MD_NONE;
 
     if (digestSize < HashLength(hashAlg)) return 0;
 
     switch (hashAlg)
     {
     case TPM_ALG_SHA1:
-        type = SHA;
+        type = MBEDTLS_MD_SHA1;
         break;
     case TPM_ALG_SHA256:
-        type = SHA256;
+        type = MBEDTLS_MD_SHA256;
         break;
     case TPM_ALG_SHA384:
-        type = SHA384;
+        type = MBEDTLS_MD_SHA384;
         break;
     case TPM_ALG_SHA512:
-        type = SHA512;
+        type = MBEDTLS_MD_SHA512;
         break;
     default:
         return 0;
     }
 
-    if ((wc_HmacSetKey(&context, type, key, keySize) != 0) ||
-        (wc_HmacUpdate(&context, data, dataSize) != 0) ||
-        (wc_HmacFinal(&context, hmac) != 0))
+    if ((mbedtls_md_setup(&context, mbedtls_md_info_from_type(type), 1) != 0) ||
+	(mbedtls_md_hmac_starts(&context, key, keySize) != 0) ||
+        (mbedtls_md_hmac_update(&context, data, dataSize) != 0) ||
+        (mbedtls_md_hmac_finish(&context, hmac) != 0))
     {
         return 0;
     }
@@ -1015,19 +1067,43 @@ UINT16 _cpri__HMACBlock(TPM_ALG_ID hashAlg,
     return (UINT16)HashLength(hashAlg);
 }
 
-WC_RNG* platformRng = NULL;
+/* "Entropy" from buffer */
+static ssize_t test_offset = -1;
+static unsigned char _entropy[64];
+extern RNG_HandleTypeDef hrng;
+static int hmac_drbg_self_test_entropy( void *data,
+                                        unsigned char *buf, size_t len )
+{
+    const unsigned char *p = (const unsigned char *)data;
+    if (test_offset < 0) {
+	size_t i;
+	test_offset = 0;
+	for (i=0; i<sizeof(_entropy); i+= 4) {
+	    if (HAL_RNG_GenerateRandomNumber(&hrng, (uint32_t *)&_entropy[i]) != HAL_OK)
+		break;
+	}
+
+    }
+    memcpy( buf, p + test_offset, len );
+    test_offset += len;
+    return( 0 );
+}
+
+mbedtls_hmac_drbg_context* platformRng = NULL;
 UINT16 _cpri__GenerateRandom(INT32 randomSize,
     BYTE *buffer)
 {
+    const mbedtls_md_info_t *md_info = mbedtls_md_info_from_type( MBEDTLS_MD_SHA1 );
     // Intialize if needed
     if ((platformRng == NULL) &&
-        (((platformRng = (WC_RNG*)malloc(sizeof(WC_RNG))) == NULL) ||
-            (wc_InitRng(platformRng) != 0)))
+        (((platformRng = (mbedtls_hmac_drbg_context*)calloc(1, sizeof(mbedtls_hmac_drbg_context))) == NULL) ||
+	(mbedtls_hmac_drbg_seed(platformRng, md_info,
+		hmac_drbg_self_test_entropy, _entropy, NULL, 0) != 0)))
     {
         return 0;
     }
 
-    if (wc_RNG_GenerateBlock(platformRng, buffer, randomSize) != 0)
+    if (mbedtls_hmac_drbg_random(platformRng, buffer, randomSize) != 0)
     {
         return 0;
     }
@@ -1944,13 +2020,12 @@ AES_encrypt(const unsigned char *in,
     PVOID key)
 {
     TPM2B* keyContext = (TPM2B*)key;
-    Aes aesKey = { 0 };
-    BYTE iv[AES_BLOCK_SIZE] = { 0 };
-    if (wc_AesSetKey(&aesKey, keyContext->buffer, keyContext->size, iv, AES_ENCRYPTION) != 0)
+    mbedtls_aes_context aesKey = { 0 };
+    if (mbedtls_aes_setkey_enc(&aesKey, keyContext->buffer, keyContext->size*8) != 0)
     {
         return CRYPT_FAIL;
     }
-    wc_AesEncryptDirect(&aesKey, out, in);
+    mbedtls_aes_crypt_ecb(&aesKey, MBEDTLS_AES_ENCRYPT, in, out);
     memset(&aesKey, 0x00, sizeof(aesKey));
     return CRYPT_SUCCESS;
 }
@@ -1961,13 +2036,12 @@ AES_decrypt(const unsigned char *in,
     PVOID key)
 {
     TPM2B* keyContext = (TPM2B*)key;
-    Aes aesKey = { 0 };
-    BYTE iv[AES_BLOCK_SIZE] = { 0 };
-    if (wc_AesSetKey(&aesKey, keyContext->buffer, keyContext->size, iv, AES_DECRYPTION) != 0)
+    mbedtls_aes_context aesKey = { 0 };
+    if (mbedtls_aes_setkey_dec(&aesKey, keyContext->buffer, keyContext->size*8) != 0)
     {
         return CRYPT_FAIL;
     }
-    wc_AesDecryptDirect(&aesKey, out, in);
+    mbedtls_aes_crypt_ecb(&aesKey, MBEDTLS_AES_DECRYPT, in, out);
     memset(&aesKey, 0x00, sizeof(aesKey));
     return CRYPT_SUCCESS;
 }

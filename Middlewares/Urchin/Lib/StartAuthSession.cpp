@@ -18,6 +18,7 @@ THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 // http://www.trustedcomputinggroup.org/resources/tpm_library_specification
 
 #include    "stdafx.h"
+#include <stdio.h>
 TPM2B_TYPE(KEY, (sizeof(AUTH_VALUE)* 2));
 
 UINT16

@@ -32,7 +32,7 @@ THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 #ifdef URCHIN_DEBUG
 #include <stdio.h>
-uint8_t EnableUrchinDebugSpew = 0;
+uint8_t EnableUrchinDebugSpew = 1;
 static void
 UrchinPrintBuffer(char* label, uint8_t* dataPtr, uint32_t dataSize)
 {
