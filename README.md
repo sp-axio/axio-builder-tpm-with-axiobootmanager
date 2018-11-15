@@ -25,12 +25,26 @@ Linux and MS-Windows are supported, but MAC is not supported now.
 * Middlewares/Third_Party/mbedTLS : From Drivers/TisTpmDrv to this are parts for TPM driving.
 * Src/ : application files.
 
-## Usage in Linux Env.
-* Update firmware
+## Usage in x86_64 Linux Env.
+
+### Update firmware
+
 1. connect Axio-Builder-TPM via microUSB connector.
 1. cd axio-builder-tpm-with-axiobootmanager
 1. make flash
 1. when "Please reset the board" appears, push reset button
+
+### Install owner's public key
+ * public key is dist/axtool/public.pem and private key is dist/axtool/private.pem
+  * These keys are just for development or evaluation. Don't use these keys for important device!!!
+  
+` dist/axtool/linux_64bit/axtool -i dist/axtool/public.pem`
+
+### generate owner's key pair
+ 
+`openssl ecparam -genkey -name prime256v1 -noout -out private.pem`
+
+`openssl ec -in private.pem -pubout -out public.pem`
 
 ## Board specification
 ![Axio-Builder-TPM](image/axio-builder-stm32.png)
