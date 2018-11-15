@@ -200,7 +200,7 @@ int main(void)
           for(;;);
       }
       printf("Clearing and provisioning TPM complete.\r\n");
-      while(HAL_GPIO_ReadPin(User_Blue_Button_GPIO_Port, User_Blue_Button_Pin) == GPIO_PIN_SET)
+      while(HAL_GPIO_ReadPin(User_Blue_Button_GPIO_Port, User_Blue_Button_Pin) == GPIO_PIN_RESET)
       {
           if(!releaseMsg)
           {
