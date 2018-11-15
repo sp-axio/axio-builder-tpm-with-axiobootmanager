@@ -33,4 +33,4 @@ Linux and MS-Windows are supported, but MAC is not supported now.
 1. when "Please reset the board" appears, push reset button
 
 ## Board specification
-[image: image/axio-builder-stm32.png]
+![Axio-Builder-TPM](image/axio-builder-stm32.png)
