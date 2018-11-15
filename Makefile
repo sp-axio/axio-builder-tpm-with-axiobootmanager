@@ -442,7 +442,6 @@ C_INCLUDES =  \
 C_INCLUDES += -IDrivers/TisTpmDrv
 C_INCLUDES += -IMiddlewares/Urchin/Inc
 C_INCLUDES += -IMiddlewares/CryptoAPI
-C_INCLUDES += -IMiddlewares/Third_Party/wolfssl-3.8.0
 
 # compile gcc flags
 ASFLAGS = $(MCU) $(AS_DEFS) $(AS_INCLUDES) $(OPT) -Wall -fdata-sections -ffunction-sections
