@@ -518,8 +518,16 @@ $(BUILD_DIR):
 clean:
 	-rm -fR $(BUILD_DIR)
   
-flash: $(BUILD_DIR)/$(TARGET).bin
-	st-flash write $(BUILD_DIR)/$(TARGET).bin 0x8000000
+AXSIGN=./dist/axtool/linux_64bit/axsign
+AXTOOL=./dist/axtool/linux_64bit/axtool
+AXOPT=-t builder_stm32
+AXTTY=/dev/ttyUSB0
+PRIVPEM=dist/axtool/private.pem 
+
+$(TARGET).bin.00000000.sig: $(BUILD_DIR)/$(TARGET).bin
+	@$(AXSIGN) $(AXOPT) $< $(PRIVPEM) 0
+flash: $(TARGET).bin.00000000.sig
+	@$(AXTOOL) $(AXOPT) -f $< $(AXTTY)
 
 .PHONY: flash
 
