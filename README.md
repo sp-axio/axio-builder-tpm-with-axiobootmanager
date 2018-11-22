@@ -1,6 +1,6 @@
 # axio-builder-tpm-with-axiobootmanager
 
-This is source code containing running code on Security Platform Inc.'s Axio-Builder-TPM boad.
+This is source code containing running code on Security Platform Inc.'s Axio-Builder-TPM board.
 
 Axio-Builder-TPM is a reference board with STSAFE-TPM and STM32F4 MCU.
 
@@ -12,7 +12,7 @@ If if fails, bootloader refuses to boot-up. In a certain circumstances, it recov
 To update firmware of Axio-Builder-TPM, axtool and axsign come with the board.
 Axtool is used to install owner’s public key to Axio-Builder-TPM and
 Axsign is used to add signature to firmware file for Axio-BootManager to verify it.
-Axtool and Axsign is provided in dist/axtool. Users can choose tool according to their platform.
+Axtool and Axsign is provided in dist/axtool/. Users can choose tool according to their platform.
 Linux and MS-Windows are supported, but MAC is not supported now.
 
 ## Tree Structure
@@ -22,7 +22,7 @@ Linux and MS-Windows are supported, but MAC is not supported now.
 * Drivers/TisTpmDrv
 * Middlewares/CryptoAPI
 * Middlewares/Urchin : fork from https://github.com/LordOfDorks/security-1.git
-* Middlewares/Third_Party/mbedTLS : From Drivers/TisTpmDrv to this are parts for TPM driving.
+* Middlewares/Third_Party/mbedTLS : From Drivers/TisTpmDrv to this line are parts for TPM driving.
 * Src/ : application files.
 
 ## Usage in x86_64 Linux Env.
