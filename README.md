@@ -36,7 +36,7 @@ Linux and MS-Windows are supported, but MAC is not supported now.
 
 ### Install owner's public key
  * public key is dist/axtool/public.pem and private key is dist/axtool/private.pem
-  * These keys are just for development or evaluation. Don't use these keys for important device!!!
+  * These keys are just for development or evaluation. **Don't use these keys for important device!!!**
   
 ` dist/axtool/linux_64bit/axtool -i dist/axtool/public.pem`
 
