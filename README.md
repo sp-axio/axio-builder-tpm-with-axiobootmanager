@@ -18,7 +18,7 @@ Linux and MS-Windows are supported, but MAC is not supported now.
 ## Tree Structure
 
 * dist/ : tools provided by Security Platform Inc.
-* axio-builder-stm32.ioc : project file for STM32CubeMX. Users can change development environment or hardware configuration.
+* axio-builder-tpm.ioc : project file for STM32CubeMX. Users can change development environment or hardware configuration.
 * Drivers/TisTpmDrv
 * Middlewares/CryptoAPI
 * Middlewares/Urchin : fork from https://github.com/LordOfDorks/security-1.git
@@ -47,4 +47,4 @@ Linux and MS-Windows are supported, but MAC is not supported now.
 `openssl ec -in private.pem -pubout -out public.pem`
 
 ## Board specification
-![Axio-Builder-TPM](image/axio-builder-stm32.png)
+![Axio-Builder-TPM](image/axio-builder-tpm.png)
