@@ -521,7 +521,7 @@ clean:
 AXSIGN=./dist/axtool/linux_64bit/axsign
 AXTOOL=./dist/axtool/linux_64bit/axtool
 AXOPT=-t builder_stm32
-AXTTY=/dev/ttyUSB0
+AXTTY?=/dev/ttyUSB0
 PRIVPEM=dist/axtool/private.pem 
 
 $(TARGET).bin.00000000.sig: $(BUILD_DIR)/$(TARGET).bin
